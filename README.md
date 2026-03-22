@@ -153,30 +153,30 @@ Visibility uses an integer line stepping method similar to Bresenham line tracin
 
 The policy network is a plain-Python multilayer perceptron implemented in `survival_ai/network.py`.
 
-Given an input vector \(x\), each dense layer computes:
+Given an input vector `x`, each dense layer computes:
 
-\[
-z = Wx + b
-\]
+```text
+z = W x + b
+```
 
 where:
 
-- \(x\) is the input vector coming from the previous layer
-- \(W\) is the weight matrix
-- \(b\) is the bias vector
-- \(z\) is the pre-activation output of the layer before any activation function is applied
+- `x` is the input vector coming from the previous layer
+- `W` is the weight matrix
+- `b` is the bias vector
+- `z` is the pre-activation output of the layer before any activation function is applied
 
 More concretely:
 
-- each weight in \(W\) says how strongly one input value influences one neuron
-- each bias in \(b\) is a small learned offset added after the weighted sum
+- each weight in `W` says how strongly one input value influences one neuron
+- each bias in `b` is a small learned offset added after the weighted sum
 - the bias helps a neuron shift its activation threshold instead of always depending only on input-weight products
 
 Hidden layers apply ReLU:
 
-\[
-\text{ReLU}(z) = \max(0, z)
-\]
+```text
+ReLU(z) = max(0, z)
+```
 
 `ReLU` stands for `Rectified Linear Unit`.
 
@@ -199,20 +199,20 @@ In practice this means:
 
 Output layers remain linear:
 
-\[
-\text{logits} = z
-\]
+```text
+logits = z
+```
 
 These logits are converted into action probabilities using softmax over legal actions only:
 
-\[
-p(a_i \mid s) = \frac{e^{\ell_i}}{\sum_{j \in \mathcal{A}_{legal}} e^{\ell_j}}
-\]
+```text
+p(a_i | s) = exp(l_i) / sum(exp(l_j)) for j in legal_actions
+```
 
 where:
 
-- \(\ell_i\) is the raw output score for action \(i\)
-- \(\mathcal{A}_{legal}\) is the current set of legal actions
+- `l_i` is the raw output score for action `i`
+- `legal_actions` is the current set of legal action indices
 
 ### Shared Policy
 
@@ -230,24 +230,24 @@ This is useful for self-play because it keeps the system symmetric and easier to
 
 Training is currently episode-based REINFORCE with discounted returns.
 
-For each step \(t\), the return is:
+For each step `t`, the return is:
 
-\[
-G_t = r_t + \gamma G_{t+1}
-\]
+```text
+G_t = r_t + gamma * G_{t+1}
+```
 
 where:
 
-- \(r_t\) is the immediate reward at step \(t\)
-- \(\gamma\) is `DISCOUNT_FACTOR`
+- `r_t` is the immediate reward at step `t`
+- `gamma` is `DISCOUNT_FACTOR`
 
 Returns are normalized before the update to reduce variance.
 
 The policy-gradient-style update uses:
 
-\[
-\nabla \log \pi(a_t \mid s_t) \cdot G_t
-\]
+```text
+grad log(pi(a_t | s_t)) * G_t
+```
 
 In code terms:
 
@@ -280,9 +280,11 @@ The reward is shaped from multiple components:
 
 The total per-step reward is the sum of these components:
 
-\[
-R_t = R_{survive} + R_{deal} + R_{take} + R_{death} + R_{win} + R_{explore} + R_{approach} + R_{range} + R_{pickup} + R_{heal} + R_{weapon} + R_{drop} + R_{idle} + R_{loop} + R_{draw}
-\]
+```text
+R_t = R_survive + R_deal + R_take + R_death + R_win + R_explore
+    + R_approach + R_range + R_pickup + R_heal + R_weapon
+    + R_drop + R_idle + R_loop + R_draw
+```
 
 This design is intentionally exposed and editable because reward shaping is one of the main learning goals of the repository.
 
