@@ -1,0 +1,4 @@
+__pycache__/
+*.pyc
+survival_ai/saves/weights.json
+survival_ai/saves/weights_backup.json
