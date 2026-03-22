@@ -118,6 +118,7 @@ def run_debug_loop(
     controller_builder,
     controller_mode_label_getter: Callable[[], str | None] | None = None,
     controller_mode_cycle_callback: Callable[[], None] | None = None,
+    episode_reset_callback: Callable[[], None] | None = None,
     live_trainer: Trainer | None = None,
 ) -> None:
     """Run the pygame loop for either scripted or learned policy playback."""
@@ -170,6 +171,8 @@ def run_debug_loop(
                         controllers.update(controller_builder(world))
                     elif event.key == pygame.K_r:
                         world.reset()
+                        if episode_reset_callback is not None:
+                            episode_reset_callback()
                         controllers.clear()
                         controllers.update(controller_builder(world))
                         latest_rewards = create_empty_reward_breakdowns(world.agents.keys())
@@ -298,6 +301,8 @@ def run_debug_loop(
                     reset_at = now + config.RESET_DELAY_MS
             elif reset_at is not None and now >= reset_at:
                 world.reset()
+                if episode_reset_callback is not None:
+                    episode_reset_callback()
                 controllers.clear()
                 controllers.update(controller_builder(world))
                 latest_rewards = create_empty_reward_breakdowns(world.agents.keys())
@@ -379,19 +384,48 @@ def run_training(
     print(f"Saved policy weights to {config.WEIGHTS_PATH}")
 
 
-def run_scripted_debug(seed: int, max_ticks: int | None = None) -> None:
+def run_scripted_debug(
+    seed: int,
+    max_ticks: int | None = None,
+    randomize_seed_each_episode: bool = False,
+) -> None:
     """Run the existing scripted debug mode with a random inspection network."""
 
     resolved_max_ticks = config.MAX_EPISODE_LENGTH if max_ticks is None else max_ticks
     print(f"Mode=debug seed={seed} max_ticks={resolved_max_ticks}")
     world = World(max_episode_length=resolved_max_ticks)
     debug_network = create_network_for_world(world, seed=seed)
-    controller_builder = lambda current_world: build_scripted_controllers(current_world, seed)
+    episode_seed_rng = random.Random(seed)
+    episode_seed_state = {"value": seed}
+
+    def controller_builder(current_world):
+        """Build scripted controllers using the current episode seed."""
+
+        return build_scripted_controllers(current_world, episode_seed_state["value"])
+
+    def advance_episode_seed() -> None:
+        """Draw a fresh episode seed for the next visible episode."""
+
+        if not randomize_seed_each_episode:
+            return
+        episode_seed_state["value"] = episode_seed_rng.randint(0, 2**31 - 1)
+        print(f"Episode seed: {episode_seed_state['value']}")
+
     controllers = controller_builder(world)
-    run_debug_loop(world, controllers, debug_network, controller_builder)
+    run_debug_loop(
+        world,
+        controllers,
+        debug_network,
+        controller_builder,
+        episode_reset_callback=advance_episode_seed,
+    )
 
 
-def run_policy_debug(seed: int, max_ticks: int | None = None) -> None:
+def run_policy_debug(
+    seed: int,
+    max_ticks: int | None = None,
+    randomize_seed_each_episode: bool = False,
+) -> None:
     """Load saved weights and run the learned policy with visible on-screen learning."""
 
     resolved_max_ticks = config.MAX_EPISODE_LENGTH if max_ticks is None else max_ticks
@@ -413,6 +447,8 @@ def run_policy_debug(seed: int, max_ticks: int | None = None) -> None:
         else available_modes[0]
     )
     policy_mode_state = {"index": available_modes.index(default_mode)}
+    episode_seed_rng = random.Random(seed)
+    episode_seed_state = {"value": seed}
 
     def current_policy_mode() -> str:
         """Return the currently selected policy playback mode."""
@@ -427,12 +463,24 @@ def run_policy_debug(seed: int, max_ticks: int | None = None) -> None:
         ) % len(available_modes)
         print(f"Policy mode: {current_policy_mode()}")
 
-    controller_builder = lambda current_world: build_policy_controllers(
-        current_world,
-        policy_network,
-        seed,
-        current_policy_mode(),
-    )
+    def controller_builder(current_world):
+        """Build policy controllers using the current episode seed."""
+
+        return build_policy_controllers(
+            current_world,
+            policy_network,
+            episode_seed_state["value"],
+            current_policy_mode(),
+        )
+
+    def advance_episode_seed() -> None:
+        """Draw a fresh episode seed for the next visible episode."""
+
+        if not randomize_seed_each_episode:
+            return
+        episode_seed_state["value"] = episode_seed_rng.randint(0, 2**31 - 1)
+        print(f"Episode seed: {episode_seed_state['value']}")
+
     controllers = controller_builder(world)
     run_debug_loop(
         world,
@@ -441,15 +489,19 @@ def run_policy_debug(seed: int, max_ticks: int | None = None) -> None:
         controller_builder,
         controller_mode_label_getter=current_policy_mode,
         controller_mode_cycle_callback=cycle_policy_mode,
+        episode_reset_callback=advance_episode_seed,
         live_trainer=trainer,
     )
 
 
-def parse_cli_args(raw_args: list[str]) -> tuple[str, list[str], int, int | None]:
+def parse_cli_args(
+    raw_args: list[str],
+) -> tuple[str, list[str], int, int | None, bool]:
     """Parse the main mode arguments and optional shared random seed."""
 
     filtered_args: list[str] = []
     seed = config.DEFAULT_SEED
+    seed_explicitly_set = False
     max_ticks: int | None = None
     index = 0
 
@@ -460,6 +512,7 @@ def parse_cli_args(raw_args: list[str]) -> tuple[str, list[str], int, int | None
                 raise SystemExit("Missing value for --seed")
             seed_arg = raw_args[index + 1]
             seed = random.SystemRandom().randint(0, 2**31 - 1) if seed_arg == "auto" else int(seed_arg)
+            seed_explicitly_set = True
             index += 2
             continue
         if current_arg == "--tick":
@@ -475,24 +528,35 @@ def parse_cli_args(raw_args: list[str]) -> tuple[str, list[str], int, int | None
 
     mode = filtered_args[0] if filtered_args else config.DEFAULT_START_MODE
     mode_args = filtered_args[1:] if filtered_args else []
+    randomize_seed_each_episode = not raw_args and not seed_explicitly_set
+    if not raw_args and not seed_explicitly_set:
+        seed = random.SystemRandom().randint(0, 2**31 - 1)
     if not raw_args and max_ticks is None:
         max_ticks = config.DEFAULT_START_TICKS
-    return mode, mode_args, seed, max_ticks
+    return mode, mode_args, seed, max_ticks, randomize_seed_each_episode
 
 
 def main(argv: list[str] | None = None) -> None:
     """Dispatch between scripted debug, training, and learned policy playback."""
 
     raw_args = list(sys.argv[1:] if argv is None else argv)
-    mode, mode_args, seed, max_ticks = parse_cli_args(raw_args)
+    mode, mode_args, seed, max_ticks, randomize_seed_each_episode = parse_cli_args(raw_args)
 
     if mode == "train":
         num_episodes = int(mode_args[0]) if mode_args else config.DEFAULT_TRAIN_EPISODES
         run_training(num_episodes, seed, max_ticks=max_ticks)
     elif mode == "policy":
-        run_policy_debug(seed, max_ticks=max_ticks)
+        run_policy_debug(
+            seed,
+            max_ticks=max_ticks,
+            randomize_seed_each_episode=randomize_seed_each_episode,
+        )
     elif mode == "debug":
-        run_scripted_debug(seed, max_ticks=max_ticks)
+        run_scripted_debug(
+            seed,
+            max_ticks=max_ticks,
+            randomize_seed_each_episode=randomize_seed_each_episode,
+        )
     else:
         raise SystemExit(
             "Usage: python -m survival_ai.main [debug|train [episodes]|policy] [--seed N|auto] [--tick N]"

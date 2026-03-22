@@ -23,6 +23,9 @@ class RewardBreakdown:
     item_pickup_reward: float = 0.0
     heal_item_use_reward: float = 0.0
     weapon_item_use_reward: float = 0.0
+    weapon_hit_bonus: float = 0.0
+    weapon_kill_bonus: float = 0.0
+    armed_visible_enemy_reward: float = 0.0
     drop_penalty: float = 0.0
     idle_penalty: float = 0.0
     oscillation_penalty: float = 0.0
@@ -54,6 +57,24 @@ def compute_step_rewards(world, step_result) -> dict[int, RewardBreakdown]:
         reward_breakdowns[event.target_id].damage_penalty += (
             config.TAKE_DAMAGE_PENALTY * reward_scale
         )
+        if event.used_weapon:
+            if event.weapon_type == "melee_weapon":
+                reward_breakdowns[event.attacker_id].weapon_hit_bonus += (
+                    config.MELEE_WEAPON_HIT_REWARD_BONUS
+                )
+            elif event.weapon_type == "ranged_weapon":
+                reward_breakdowns[event.attacker_id].weapon_hit_bonus += (
+                    config.RANGED_WEAPON_HIT_REWARD_BONUS
+                )
+        if event.killed_target and event.used_weapon:
+            if event.weapon_type == "melee_weapon":
+                reward_breakdowns[event.attacker_id].weapon_kill_bonus += (
+                    config.MELEE_WEAPON_KILL_REWARD_BONUS
+                )
+            elif event.weapon_type == "ranged_weapon":
+                reward_breakdowns[event.attacker_id].weapon_kill_bonus += (
+                    config.RANGED_WEAPON_KILL_REWARD_BONUS
+                )
 
     for event in step_result.item_events:
         if event["event_type"] == "pickup" and int(event.get("reward_granted", 0)) == 1:
@@ -107,6 +128,10 @@ def compute_step_rewards(world, step_result) -> dict[int, RewardBreakdown]:
             reward_breakdowns[agent.entity_id].attack_range_reward += (
                 config.ENTER_ATTACK_RANGE_REWARD
             )
+        if agent.has_equipped_weapon() and agent.current_visible_enemy_distance is not None:
+            reward_breakdowns[agent.entity_id].armed_visible_enemy_reward += (
+                config.ARMED_VISIBLE_ENEMY_REWARD
+            )
         if agent.idled_last_step:
             reward_breakdowns[agent.entity_id].idle_penalty += config.IDLE_PENALTY
         if agent.oscillated_last_step:
@@ -125,6 +150,9 @@ def compute_step_rewards(world, step_result) -> dict[int, RewardBreakdown]:
             + breakdown.item_pickup_reward
             + breakdown.heal_item_use_reward
             + breakdown.weapon_item_use_reward
+            + breakdown.weapon_hit_bonus
+            + breakdown.weapon_kill_bonus
+            + breakdown.armed_visible_enemy_reward
             + breakdown.drop_penalty
             + breakdown.idle_penalty
             + breakdown.oscillation_penalty
@@ -150,6 +178,9 @@ def format_reward_breakdown(breakdown: RewardBreakdown) -> str:
         f"pickup={breakdown.item_pickup_reward:+.2f} "
         f"heal={breakdown.heal_item_use_reward:+.2f} "
         f"weapon={breakdown.weapon_item_use_reward:+.2f} "
+        f"weapon_hit={breakdown.weapon_hit_bonus:+.2f} "
+        f"weapon_kill={breakdown.weapon_kill_bonus:+.2f} "
+        f"armed={breakdown.armed_visible_enemy_reward:+.2f} "
         f"drop={breakdown.drop_penalty:+.2f} "
         f"idle={breakdown.idle_penalty:+.2f} "
         f"loop={breakdown.oscillation_penalty:+.2f} "

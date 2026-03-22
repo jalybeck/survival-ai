@@ -239,6 +239,9 @@ class Trainer:
             totals.item_pickup_reward += breakdown.item_pickup_reward
             totals.heal_item_use_reward += breakdown.heal_item_use_reward
             totals.weapon_item_use_reward += breakdown.weapon_item_use_reward
+            totals.weapon_hit_bonus += breakdown.weapon_hit_bonus
+            totals.weapon_kill_bonus += breakdown.weapon_kill_bonus
+            totals.armed_visible_enemy_reward += breakdown.armed_visible_enemy_reward
             totals.drop_penalty += breakdown.drop_penalty
             totals.idle_penalty += breakdown.idle_penalty
             totals.oscillation_penalty += breakdown.oscillation_penalty
@@ -260,6 +263,9 @@ class Trainer:
             f"pickup={component_totals.item_pickup_reward:+.2f}, "
             f"heal={component_totals.heal_item_use_reward:+.2f}, "
             f"weapon={component_totals.weapon_item_use_reward:+.2f}, "
+            f"weapon_hit={component_totals.weapon_hit_bonus:+.2f}, "
+            f"weapon_kill={component_totals.weapon_kill_bonus:+.2f}, "
+            f"armed={component_totals.armed_visible_enemy_reward:+.2f}, "
             f"drop={component_totals.drop_penalty:+.2f}, "
             f"idle={component_totals.idle_penalty:+.2f}, "
             f"loop={component_totals.oscillation_penalty:+.2f}, "

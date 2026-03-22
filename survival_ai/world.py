@@ -37,6 +37,9 @@ class DamageEvent:
     damage: int
     target_position: tuple[int, int]
     direction: str
+    weapon_type: str | None = None
+    used_weapon: bool = False
+    killed_target: bool = False
 
 
 @dataclass(slots=True)
@@ -192,10 +195,13 @@ class World:
         if target is None or target.entity_id == agent.entity_id or not target.alive:
             return None
 
+        used_weapon = agent.has_active_weapon_bonus()
+        weapon_type = agent.equipped_weapon_type if used_weapon else None
         applied_damage = agent.consume_melee_attack_damage(self.melee_damage)
         target.apply_damage(applied_damage, source_direction=action.name)
         agent.damage_dealt += applied_damage
-        if not target.alive:
+        killed_target = not target.alive
+        if killed_target:
             agent.kills += 1
 
         return DamageEvent(
@@ -204,6 +210,9 @@ class World:
             damage=applied_damage,
             target_position=(target_x, target_y),
             direction=action.name,
+            weapon_type=weapon_type,
+            used_weapon=used_weapon,
+            killed_target=killed_target,
         )
 
     def perform_shot(self, agent: AgentEntity, action: Action) -> DamageEvent | None:
@@ -236,7 +245,8 @@ class World:
         applied_damage = agent.consume_ranged_attack_damage(self.melee_damage)
         target.apply_damage(applied_damage, source_direction=action.name)
         agent.damage_dealt += applied_damage
-        if not target.alive:
+        killed_target = not target.alive
+        if killed_target:
             agent.kills += 1
 
         return DamageEvent(
@@ -245,6 +255,9 @@ class World:
             damage=applied_damage,
             target_position=target_position,
             direction=action.name,
+            weapon_type="ranged_weapon",
+            used_weapon=True,
+            killed_target=killed_target,
         )
 
     def handle_item_action(self, agent: AgentEntity, action: Action) -> dict[str, int | str] | None:
