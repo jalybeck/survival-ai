@@ -61,6 +61,7 @@ class AgentEntity(Entity):
     used_heal_item_this_step: bool = False
     used_weapon_item_this_step: bool = False
     healed_amount_this_step: int = 0
+    health_before_heal_this_step: int = 0
     blocks_movement: bool = True
 
     def __post_init__(self) -> None:
@@ -115,6 +116,7 @@ class AgentEntity(Entity):
         self.used_heal_item_this_step = False
         self.used_weapon_item_this_step = False
         self.healed_amount_this_step = 0
+        self.health_before_heal_this_step = 0
 
     def apply_damage(self, amount: int, source_direction: str | None = None) -> int:
         """Apply incoming damage and return the remaining health."""
@@ -140,6 +142,7 @@ class AgentEntity(Entity):
         self.used_heal_item_this_step = False
         self.used_weapon_item_this_step = False
         self.healed_amount_this_step = 0
+        self.health_before_heal_this_step = 0
 
     def has_inventory_item(self) -> bool:
         """Return True when the agent is carrying an item in its single-slot inventory."""
@@ -189,6 +192,7 @@ class AgentEntity(Entity):
             missing_health = self.max_health - self.health
             if missing_health <= 0:
                 return None
+            self.health_before_heal_this_step = self.health
             healed_amount = min(missing_health, self.inventory_heal_amount)
             self.health += healed_amount
             self.inventory_item_type = None

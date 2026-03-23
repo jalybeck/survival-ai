@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from . import config
 from .actions import SHOOT_ACTIONS
 from .utils import in_bounds, manhattan_distance
 
@@ -190,6 +191,7 @@ def build_feature_vector_from_visible(
     _append_feature(feature_names, feature_vector, "nearest_agent_dx_norm", nearest_dx_norm)
     _append_feature(feature_names, feature_vector, "nearest_agent_dy_norm", nearest_dy_norm)
     _append_feature(feature_names, feature_vector, "nearest_agent_distance_norm", nearest_distance_norm)
+    _append_feature(feature_names, feature_vector, "visible_enemy_exists", 1.0 if nearest_agent is not None else 0.0)
 
     if nearest_item is None:
         nearest_item_dx_norm = 0.0
@@ -203,10 +205,47 @@ def build_feature_vector_from_visible(
             (nearest_item.x, nearest_item.y),
         ) / max(1, radius * 2)
 
-    _append_feature(feature_names, feature_vector, "item_here", 1.0 if world.get_item_at(agent.x, agent.y) is not None else 0.0)
+    current_tile_item = world.get_item_at(agent.x, agent.y)
+    _append_feature(feature_names, feature_vector, "item_here", 1.0 if current_tile_item is not None else 0.0)
+    _append_feature(
+        feature_names,
+        feature_vector,
+        "standing_on_heal_item",
+        1.0 if current_tile_item is not None and current_tile_item.item_type == "heal" else 0.0,
+    )
+    _append_feature(
+        feature_names,
+        feature_vector,
+        "standing_on_melee_weapon_item",
+        1.0 if current_tile_item is not None and current_tile_item.item_type == "melee_weapon" else 0.0,
+    )
+    _append_feature(
+        feature_names,
+        feature_vector,
+        "standing_on_ranged_weapon_item",
+        1.0 if current_tile_item is not None and current_tile_item.item_type == "ranged_weapon" else 0.0,
+    )
     _append_feature(feature_names, feature_vector, "has_item", 1.0 if agent.has_inventory_item() else 0.0)
     _append_feature(feature_names, feature_vector, "has_melee_weapon", 1.0 if agent.has_active_weapon_bonus() else 0.0)
     _append_feature(feature_names, feature_vector, "has_ranged_weapon", 1.0 if agent.has_ranged_weapon() else 0.0)
+    _append_feature(
+        feature_names,
+        feature_vector,
+        "equipped_melee_weapon",
+        1.0 if agent.equipped_weapon_type == "melee_weapon" and agent.equipped_weapon_charges > 0 else 0.0,
+    )
+    _append_feature(
+        feature_names,
+        feature_vector,
+        "equipped_ranged_weapon",
+        1.0 if agent.equipped_weapon_type == "ranged_weapon" and agent.equipped_weapon_charges > 0 else 0.0,
+    )
+    _append_feature(
+        feature_names,
+        feature_vector,
+        "equipped_weapon_charges_norm",
+        _normalize_equipped_weapon_charges(agent),
+    )
     _append_feature(
         feature_names,
         feature_vector,
@@ -240,6 +279,12 @@ def build_feature_vector_from_visible(
     _append_feature(feature_names, feature_vector, "damage_from_down", self_state.damage_from_down)
     _append_feature(feature_names, feature_vector, "damage_from_left", self_state.damage_from_left)
     _append_feature(feature_names, feature_vector, "damage_from_right", self_state.damage_from_right)
+    _append_feature(
+        feature_names,
+        feature_vector,
+        "low_health_state",
+        1.0 if self_state.health_norm <= config.LOW_HEALTH_THRESHOLD else 0.0,
+    )
 
     # "can_attack" tells the future policy whether a melee action could succeed
     # right now without needing to infer adjacency from multiple separate features.
@@ -253,11 +298,13 @@ def build_feature_vector_from_visible(
         )
     ) else 0.0
     _append_feature(feature_names, feature_vector, "can_attack", can_attack)
+    _append_feature(feature_names, feature_vector, "visible_enemy_in_melee_range", can_attack)
     can_shoot = 1.0 if any(
         world._find_shot_target(agent, action) is not None
         for action in SHOOT_ACTIONS
     ) else 0.0
     _append_feature(feature_names, feature_vector, "can_shoot", can_shoot)
+    _append_feature(feature_names, feature_vector, "visible_enemy_in_shoot_line", can_shoot)
     _append_feature(
         feature_names,
         feature_vector,
@@ -410,6 +457,16 @@ def _normalize_relative_axis(delta: int, scale: int) -> float:
     """Normalize a signed relative axis value into the range [-1, 1]."""
 
     return delta / max(1, scale - 1)
+
+
+def _normalize_equipped_weapon_charges(agent) -> float:
+    """Normalize remaining equipped weapon charges into the range [0, 1]."""
+
+    if agent.equipped_weapon_type == "melee_weapon":
+        return agent.equipped_weapon_charges / max(1, config.MELEE_WEAPON_ATTACK_CHARGES)
+    if agent.equipped_weapon_type == "ranged_weapon":
+        return agent.equipped_weapon_charges / max(1, config.RANGED_WEAPON_SHOT_CHARGES)
+    return 0.0
 
 
 def _normalize_damage_direction(last_damage_direction: str | None) -> str | None:

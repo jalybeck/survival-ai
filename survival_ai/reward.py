@@ -21,12 +21,16 @@ class RewardBreakdown:
     approach_reward: float = 0.0
     attack_range_reward: float = 0.0
     item_pickup_reward: float = 0.0
+    contextual_weapon_pickup_reward: float = 0.0
+    contextual_heal_pickup_reward: float = 0.0
     heal_item_use_reward: float = 0.0
+    low_health_heal_bonus: float = 0.0
     weapon_item_use_reward: float = 0.0
     weapon_hit_bonus: float = 0.0
     weapon_kill_bonus: float = 0.0
     armed_visible_enemy_reward: float = 0.0
     drop_penalty: float = 0.0
+    drop_weapon_while_threatened_penalty: float = 0.0
     idle_penalty: float = 0.0
     oscillation_penalty: float = 0.0
     no_winner_penalty: float = 0.0
@@ -77,30 +81,62 @@ def compute_step_rewards(world, step_result) -> dict[int, RewardBreakdown]:
                 )
 
     for event in step_result.item_events:
+        agent_id = int(event["agent_id"])
+        agent = world.agents[agent_id]
+
         if event["event_type"] == "pickup" and int(event.get("reward_granted", 0)) == 1:
-            reward_breakdowns[int(event["agent_id"])].item_pickup_reward += (
+            reward_breakdowns[agent_id].item_pickup_reward += (
                 config.ITEM_PICKUP_REWARD
             )
+            if (
+                event["item_type"] in {"melee_weapon", "ranged_weapon"}
+                and agent.current_visible_enemy_distance is not None
+            ):
+                reward_breakdowns[agent_id].contextual_weapon_pickup_reward += (
+                    config.CONTEXTUAL_WEAPON_PICKUP_REWARD
+                )
+            elif (
+                event["item_type"] == "heal"
+                and agent.health / max(1, agent.max_health) <= config.LOW_HEALTH_THRESHOLD
+            ):
+                reward_breakdowns[agent_id].contextual_heal_pickup_reward += (
+                    config.CONTEXTUAL_HEAL_PICKUP_REWARD
+                )
         elif (
             event["event_type"] == "use"
             and event["item_type"] == "heal"
             and int(event["value"]) > 0
         ):
-            reward_breakdowns[int(event["agent_id"])].heal_item_use_reward += (
+            reward_breakdowns[agent_id].heal_item_use_reward += (
                 config.HEAL_ITEM_USE_REWARD
             )
+            if (
+                agent.used_heal_item_this_step
+                and agent.health_before_heal_this_step / max(1, agent.max_health)
+                <= config.LOW_HEALTH_THRESHOLD
+            ):
+                reward_breakdowns[agent_id].low_health_heal_bonus += (
+                    config.LOW_HEALTH_HEAL_BONUS
+                )
         elif (
             event["event_type"] == "use"
             and event["item_type"] == "weapon"
             and int(event.get("from_drop", 0)) == 0
         ):
-            reward_breakdowns[int(event["agent_id"])].weapon_item_use_reward += (
+            reward_breakdowns[agent_id].weapon_item_use_reward += (
                 config.WEAPON_ITEM_USE_REWARD
             )
         elif event["event_type"] == "drop":
-            reward_breakdowns[int(event["agent_id"])].drop_penalty += (
+            reward_breakdowns[agent_id].drop_penalty += (
                 config.DROP_ITEM_PENALTY
             )
+            if (
+                event["item_type"] in {"melee_weapon", "ranged_weapon"}
+                and agent.current_visible_enemy_distance is not None
+            ):
+                reward_breakdowns[agent_id].drop_weapon_while_threatened_penalty += (
+                    config.DROP_WEAPON_WHILE_THREATENED_PENALTY
+                )
 
     for agent_id in step_result.deaths:
         reward_breakdowns[agent_id].death_penalty += config.DEATH_PENALTY
@@ -148,12 +184,16 @@ def compute_step_rewards(world, step_result) -> dict[int, RewardBreakdown]:
             + breakdown.approach_reward
             + breakdown.attack_range_reward
             + breakdown.item_pickup_reward
+            + breakdown.contextual_weapon_pickup_reward
+            + breakdown.contextual_heal_pickup_reward
             + breakdown.heal_item_use_reward
+            + breakdown.low_health_heal_bonus
             + breakdown.weapon_item_use_reward
             + breakdown.weapon_hit_bonus
             + breakdown.weapon_kill_bonus
             + breakdown.armed_visible_enemy_reward
             + breakdown.drop_penalty
+            + breakdown.drop_weapon_while_threatened_penalty
             + breakdown.idle_penalty
             + breakdown.oscillation_penalty
             + breakdown.no_winner_penalty
@@ -176,12 +216,16 @@ def format_reward_breakdown(breakdown: RewardBreakdown) -> str:
         f"approach={breakdown.approach_reward:+.2f} "
         f"range={breakdown.attack_range_reward:+.2f} "
         f"pickup={breakdown.item_pickup_reward:+.2f} "
+        f"pickup_weapon_ctx={breakdown.contextual_weapon_pickup_reward:+.2f} "
+        f"pickup_heal_ctx={breakdown.contextual_heal_pickup_reward:+.2f} "
         f"heal={breakdown.heal_item_use_reward:+.2f} "
+        f"heal_low={breakdown.low_health_heal_bonus:+.2f} "
         f"weapon={breakdown.weapon_item_use_reward:+.2f} "
         f"weapon_hit={breakdown.weapon_hit_bonus:+.2f} "
         f"weapon_kill={breakdown.weapon_kill_bonus:+.2f} "
         f"armed={breakdown.armed_visible_enemy_reward:+.2f} "
         f"drop={breakdown.drop_penalty:+.2f} "
+        f"drop_threat={breakdown.drop_weapon_while_threatened_penalty:+.2f} "
         f"idle={breakdown.idle_penalty:+.2f} "
         f"loop={breakdown.oscillation_penalty:+.2f} "
         f"draw={breakdown.no_winner_penalty:+.2f}"

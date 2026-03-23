@@ -17,8 +17,8 @@ from .config import (
     MAP_WIDTH,
     MAX_EPISODE_LENGTH,
     MAX_HEALTH,
-    MELEE_DAMAGE,
     NUM_AGENTS,
+    UNARMED_DAMAGE,
     VISION_RADIUS,
 )
 from .entity import AgentEntity, ItemEntity
@@ -63,7 +63,7 @@ class World:
         height: int = MAP_HEIGHT,
         num_agents: int = NUM_AGENTS,
         max_health: int = MAX_HEALTH,
-        melee_damage: int = MELEE_DAMAGE,
+        melee_damage: int = UNARMED_DAMAGE,
         max_episode_length: int = MAX_EPISODE_LENGTH,
     ) -> None:
         self.width = width

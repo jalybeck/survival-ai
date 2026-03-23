@@ -463,6 +463,7 @@ class PygameRenderer:
             f"self_x={feature_lookup['self_x_norm']:.2f}",
             f"self_y={feature_lookup['self_y_norm']:.2f}",
             f"health={feature_lookup['self_health_norm']:.2f}",
+            f"low_health={feature_lookup.get('low_health_state', 0.0):.2f}",
             (
                 "walls="
                 f"{int(feature_lookup['wall_up'])}"
@@ -480,13 +481,23 @@ class PygameRenderer:
             f"nearest_dx={feature_lookup['nearest_agent_dx_norm']:.2f}",
             f"nearest_dy={feature_lookup['nearest_agent_dy_norm']:.2f}",
             f"nearest_dist={feature_lookup['nearest_agent_distance_norm']:.2f}",
+            f"enemy_visible={feature_lookup.get('visible_enemy_exists', 0.0):.2f}",
             f"damaged={feature_lookup['damaged_last_step']:.2f}",
             f"can_attack={feature_lookup['can_attack']:.2f}",
+            f"in_melee={feature_lookup.get('visible_enemy_in_melee_range', 0.0):.2f}",
             f"can_shoot={feature_lookup['can_shoot']:.2f}",
+            f"in_shoot_line={feature_lookup.get('visible_enemy_in_shoot_line', 0.0):.2f}",
             f"item_here={feature_lookup['item_here']:.2f}",
+            (
+                "tile_item="
+                f"{int(feature_lookup.get('standing_on_heal_item', 0.0))}"
+                f"{int(feature_lookup.get('standing_on_melee_weapon_item', 0.0))}"
+                f"{int(feature_lookup.get('standing_on_ranged_weapon_item', 0.0))}"
+            ),
             f"has_item={feature_lookup['has_item']:.2f}",
-            f"melee_weapon={feature_lookup['has_melee_weapon']:.2f}",
-            f"ranged_weapon={feature_lookup['has_ranged_weapon']:.2f}",
+            f"melee_weapon={feature_lookup.get('equipped_melee_weapon', feature_lookup['has_melee_weapon']):.2f}",
+            f"ranged_weapon={feature_lookup.get('equipped_ranged_weapon', feature_lookup['has_ranged_weapon']):.2f}",
+            f"weapon_charges={feature_lookup.get('equipped_weapon_charges_norm', 0.0):.2f}",
             f"nearest_item={feature_lookup['nearest_item_distance_norm']:.2f}",
             f"visible_agents={feature_lookup['visible_agent_count_norm']:.2f}",
             f"visible_items={feature_lookup['visible_item_count_norm']:.2f}",
