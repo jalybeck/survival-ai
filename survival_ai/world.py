@@ -13,6 +13,7 @@ from .actions import (
     action_to_delta,
 )
 from .config import (
+    LOW_HEALTH_THRESHOLD,
     MAP_HEIGHT,
     MAP_WIDTH,
     MAX_EPISODE_LENGTH,
@@ -263,6 +264,10 @@ class World:
     def handle_item_action(self, agent: AgentEntity, action: Action) -> dict[str, int | str] | None:
         """Resolve pickup or use-item actions and return a compact event record."""
 
+        visible_enemy_distance = self._nearest_visible_enemy_distance(agent)
+        visible_enemy_at_event = int(visible_enemy_distance is not None)
+        low_health_at_event = int(agent.health / max(1, agent.max_health) <= LOW_HEALTH_THRESHOLD)
+
         if action == Action.PICKUP:
             item = self.get_item_at(agent.x, agent.y)
             if item is None or agent.has_inventory_item():
@@ -282,6 +287,8 @@ class World:
                 "event_type": "pickup",
                 "from_drop": int(item.spawned_by_drop),
                 "reward_granted": reward_granted,
+                "visible_enemy_at_event": visible_enemy_at_event,
+                "low_health_at_event": low_health_at_event,
                 "value": 1,
             }
 
@@ -342,6 +349,7 @@ class World:
                 "agent_id": agent.entity_id,
                 "item_type": str(item_type),
                 "event_type": "drop",
+                "visible_enemy_at_event": visible_enemy_at_event,
                 "value": int(charges),
             }
 

@@ -90,14 +90,14 @@ def compute_step_rewards(world, step_result) -> dict[int, RewardBreakdown]:
             )
             if (
                 event["item_type"] in {"melee_weapon", "ranged_weapon"}
-                and agent.current_visible_enemy_distance is not None
+                and int(event.get("visible_enemy_at_event", 0)) == 1
             ):
                 reward_breakdowns[agent_id].contextual_weapon_pickup_reward += (
                     config.CONTEXTUAL_WEAPON_PICKUP_REWARD
                 )
             elif (
                 event["item_type"] == "heal"
-                and agent.health / max(1, agent.max_health) <= config.LOW_HEALTH_THRESHOLD
+                and int(event.get("low_health_at_event", 0)) == 1
             ):
                 reward_breakdowns[agent_id].contextual_heal_pickup_reward += (
                     config.CONTEXTUAL_HEAL_PICKUP_REWARD
@@ -132,7 +132,7 @@ def compute_step_rewards(world, step_result) -> dict[int, RewardBreakdown]:
             )
             if (
                 event["item_type"] in {"melee_weapon", "ranged_weapon"}
-                and agent.current_visible_enemy_distance is not None
+                and int(event.get("visible_enemy_at_event", 0)) == 1
             ):
                 reward_breakdowns[agent_id].drop_weapon_while_threatened_penalty += (
                     config.DROP_WEAPON_WHILE_THREATENED_PENALTY
