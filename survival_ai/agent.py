@@ -5,6 +5,7 @@ from __future__ import annotations
 import random
 from abc import ABC, abstractmethod
 
+from . import config
 from .actions import Action, MOVEMENT_ACTIONS, SHOOT_ACTIONS, action_to_delta
 from .network import masked_softmax, select_index_from_probabilities
 from .observation import build_observation, compute_visible_cells
@@ -214,7 +215,14 @@ class ScriptedController(AgentController):
 class PolicyController(AgentController):
     """Chooses actions from the learned policy network using current observations."""
 
-    ACTION_SELECTION_MODES = ("greedy", "sample")
+    ACTION_SELECTION_MODES = (
+        "greedy",
+        "sample",
+        "temperature_sample",
+        "epsilon_greedy",
+        "top_k_sample",
+        "temperature_top_k_sample",
+    )
 
     def __init__(
         self,
@@ -241,6 +249,14 @@ class PolicyController(AgentController):
 
         if self._mode == "sample":
             chosen_index = select_index_from_probabilities(probabilities, self._rng)
+        elif self._mode == "temperature_sample":
+            chosen_index = self._choose_temperature_sample(action_scores, legal_indices)
+        elif self._mode == "epsilon_greedy":
+            chosen_index = self._choose_epsilon_greedy(probabilities, legal_indices)
+        elif self._mode == "top_k_sample":
+            chosen_index = self._choose_top_k_sample(action_scores, legal_indices)
+        elif self._mode == "temperature_top_k_sample":
+            chosen_index = self._choose_temperature_top_k_sample(action_scores, legal_indices)
         else:
             chosen_index = max(legal_indices, key=lambda index: probabilities[index])
         return Action(chosen_index)
@@ -250,3 +266,70 @@ class PolicyController(AgentController):
         """Return the supported policy playback modes."""
 
         return cls.ACTION_SELECTION_MODES
+
+    def _choose_temperature_sample(
+        self,
+        action_scores: list[float],
+        legal_indices: list[int],
+    ) -> int:
+        """Sample from a softened or sharpened action distribution."""
+
+        temperature = max(1e-6, config.POLICY_TEMPERATURE)
+        scaled_scores = list(action_scores)
+        for index in legal_indices:
+            scaled_scores[index] = action_scores[index] / temperature
+        probabilities = masked_softmax(scaled_scores, legal_indices)
+        return select_index_from_probabilities(probabilities, self._rng)
+
+    def _choose_epsilon_greedy(
+        self,
+        probabilities: list[float],
+        legal_indices: list[int],
+    ) -> int:
+        """Usually pick the best legal action, but occasionally explore randomly."""
+
+        if self._rng.random() < config.POLICY_EPSILON:
+            return self._rng.choice(legal_indices)
+        return max(legal_indices, key=lambda index: probabilities[index])
+
+    def _choose_top_k_sample(
+        self,
+        action_scores: list[float],
+        legal_indices: list[int],
+    ) -> int:
+        """Sample only among the highest-scoring legal actions."""
+
+        top_k = max(1, min(config.POLICY_TOP_K, len(legal_indices)))
+        ranked_indices = sorted(
+            legal_indices,
+            key=lambda index: action_scores[index],
+            reverse=True,
+        )
+        top_indices = ranked_indices[:top_k]
+        probabilities = masked_softmax(action_scores, top_indices)
+        return select_index_from_probabilities(probabilities, self._rng)
+
+    def _choose_temperature_top_k_sample(
+        self,
+        action_scores: list[float],
+        legal_indices: list[int],
+    ) -> int:
+        """Apply temperature scaling first, then sample within the top-k legal actions."""
+
+        temperature = max(1e-6, config.POLICY_TEMPERATURE)
+        scaled_scores = {
+            index: action_scores[index] / temperature
+            for index in legal_indices
+        }
+        top_k = max(1, min(config.POLICY_TOP_K, len(legal_indices)))
+        ranked_indices = sorted(
+            legal_indices,
+            key=lambda index: scaled_scores[index],
+            reverse=True,
+        )
+        top_indices = ranked_indices[:top_k]
+        scaled_logits = [0.0 for _ in action_scores]
+        for index in top_indices:
+            scaled_logits[index] = scaled_scores[index]
+        probabilities = masked_softmax(scaled_logits, top_indices)
+        return select_index_from_probabilities(probabilities, self._rng)

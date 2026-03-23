@@ -63,6 +63,7 @@ Current default startup behavior:
 - mode: `policy`
 - policy playback mode: `sample`
 - max ticks per episode: `1000`
+- when started with no CLI arguments, each new visible episode gets a fresh random seed
 - if no valid `weights.json` exists, the app starts from fresh random weights and writes new weights after completed episodes
 
 Other useful commands:
@@ -100,6 +101,25 @@ py -3.12 -m survival_ai.main train 2000 --seed 42 --tick 1000
 - `M`: cycle policy playback mode in `policy` mode
 - click `>>` / `<<`: expand or collapse the network panel
 
+### Policy Playback Modes
+
+Visible `policy` mode can cycle through multiple action-selection strategies while using the same underlying network:
+
+- `greedy`
+  - always picks the highest-probability legal action
+- `sample`
+  - samples directly from the full masked action distribution
+- `temperature_sample`
+  - samples after sharpening or flattening the distribution with temperature
+- `epsilon_greedy`
+  - usually picks the best legal action, but occasionally explores randomly
+- `top_k_sample`
+  - samples only among the best `K` legal actions
+- `temperature_top_k_sample`
+  - applies temperature first, then samples within the best `K` legal actions
+
+These modes are useful for studying how action selection changes visible behavior even when the network weights stay the same.
+
 ## World Model
 
 The arena is a deterministic 2D grid with:
@@ -129,6 +149,7 @@ Agents do not see the full world state. They observe:
 - immediate wall flags
 - immediate visible-adjacent enemy flags
 - nearest visible enemy direction and distance
+- explicit visible-enemy context flags
 - nearest visible item direction and distance
 - self damage indicators
 - whether attack or shoot is currently possible
@@ -136,6 +157,9 @@ Agents do not see the full world state. They observe:
 - visible item count
 - visible cell ratio
 - inventory and equipped weapon state
+- current-tile item type
+- equipped weapon charge level
+- low-health context
 
 The debug UI also shows:
 
@@ -288,6 +312,36 @@ R_t = R_survive + R_deal + R_take + R_death + R_win + R_explore
 
 This design is intentionally exposed and editable because reward shaping is one of the main learning goals of the repository.
 
+## Action Selection and Sampling
+
+The network outputs one raw score per action. Legal actions are then converted into a probability distribution.
+
+Base masked softmax:
+
+```text
+p(a_i | s) = exp(l_i) / sum(exp(l_j)) for j in legal_actions
+```
+
+Temperature sampling uses:
+
+```text
+l_i' = l_i / T
+```
+
+where:
+
+- `T < 1` sharpens the distribution
+- `T > 1` flattens the distribution
+
+Top-k sampling keeps only the best `K` legal actions before sampling.
+
+Epsilon-greedy chooses:
+
+- the best legal action with probability `1 - epsilon`
+- a random legal action with probability `epsilon`
+
+This makes the project useful not only for neural-network learning, but also for studying how different sampling policies change visible RL behavior.
+
 ## Live Training vs Headless Training
 
 Two training styles are supported:
@@ -332,7 +386,8 @@ All major tuning values live in `survival_ai/config.py`.
 | `NUM_AGENTS` | `3` | Number of agents spawned into the arena |
 | `VISION_RADIUS` | `5` | Visibility radius used for local observation and LOS queries |
 | `MAX_HEALTH` | `10` | Maximum health per agent |
-| `MELEE_DAMAGE` | `2` | Base melee damage without a melee weapon |
+| `UNARMED_DAMAGE` | `1` | Base damage dealt without a weapon |
+| `MELEE_DAMAGE` | `1` | Backward-compatible alias for `UNARMED_DAMAGE` |
 | `MAX_EPISODE_LENGTH` | `200` | Default episode cap when no explicit `--tick` override is supplied |
 
 ### Item and Combat Settings
@@ -342,7 +397,7 @@ All major tuning values live in `survival_ai/config.py`.
 | `HEAL_ITEM_AMOUNT` | `4` | Health restored by a heal item |
 | `MELEE_WEAPON_DAMAGE` | `4` | Damage dealt while a melee weapon is equipped |
 | `MELEE_WEAPON_ATTACK_CHARGES` | `3` | Number of melee attacks before the melee weapon is consumed |
-| `RANGED_WEAPON_DAMAGE` | `1` | Damage dealt by a ranged shot |
+| `RANGED_WEAPON_DAMAGE` | `2` | Damage dealt by a ranged shot |
 | `RANGED_WEAPON_SHOT_CHARGES` | `4` | Number of shots before the ranged weapon is consumed |
 | `RANGED_WEAPON_RANGE` | `5` | Maximum shot distance in tiles |
 
@@ -380,9 +435,18 @@ All major tuning values live in `survival_ai/config.py`.
 
 | Name | Default | Meaning |
 |---|---:|---|
-| `LEARNING_RATE` | `0.01` | Step size for gradient-based weight updates |
+| `LEARNING_RATE` | `0.02` | Step size for gradient-based weight updates |
 | `DISCOUNT_FACTOR` | `0.95` | How strongly future rewards influence current returns |
 | `HIDDEN_LAYER_SIZES` | `(24, 24)` | Hidden layer widths of the shared MLP |
+| `LOW_HEALTH_THRESHOLD` | `0.50` | Health ratio used for low-health item/reward context |
+
+### Policy Sampling Parameters
+
+| Name | Default | Meaning |
+|---|---:|---|
+| `POLICY_TEMPERATURE` | `0.70` | Temperature used by temperature-based sampling modes |
+| `POLICY_EPSILON` | `0.10` | Random exploration chance used by `epsilon_greedy` |
+| `POLICY_TOP_K` | `3` | Number of legal actions kept by top-k-based modes |
 
 ### Reward-Shaping Parameters
 
@@ -395,14 +459,23 @@ All major tuning values live in `survival_ai/config.py`.
 | `WIN_REWARD` | `5.0` | Reward for winning the episode |
 | `NEW_TILE_REWARD` | `0.005` | Reward for visiting a previously unseen tile this episode |
 | `IDLE_PENALTY` | `-0.01` | Penalty for staying on the same tile |
-| `OSCILLATION_PENALTY` | `-0.03` | Penalty for short A-B-A movement loops |
+| `OSCILLATION_PENALTY` | `-0.04` | Penalty for short A-B-A movement loops |
 | `NO_WINNER_PENALTY` | `-2.0` | Penalty applied to surviving agents on timeout/draw |
-| `APPROACH_VISIBLE_AGENT_REWARD` | `0.02` | Reward for reducing distance to the nearest visible enemy |
-| `ENTER_ATTACK_RANGE_REWARD` | `0.05` | Reward for newly entering melee range |
-| `ITEM_PICKUP_REWARD` | `0.20` | Reward for a valid item pickup event |
+| `APPROACH_VISIBLE_AGENT_REWARD` | `0.03` | Reward for reducing distance to the nearest visible enemy |
+| `ENTER_ATTACK_RANGE_REWARD` | `0.04` | Reward for newly entering melee range |
+| `ITEM_PICKUP_REWARD` | `0.06` | Base reward for a valid item pickup event |
+| `CONTEXTUAL_WEAPON_PICKUP_REWARD` | `0.20` | Extra pickup reward when a weapon is picked up in relevant combat context |
+| `CONTEXTUAL_HEAL_PICKUP_REWARD` | `0.15` | Extra pickup reward when a heal is picked up while low on health |
 | `HEAL_ITEM_USE_REWARD` | `0.35` | Reward for successfully using a heal item |
-| `WEAPON_ITEM_USE_REWARD` | `0.20` | Reward for equipping a non-recycled weapon item |
-| `DROP_ITEM_PENALTY` | `-0.02` | Penalty for dropping an item |
+| `LOW_HEALTH_HEAL_BONUS` | `0.20` | Extra reward for healing when already in low-health state |
+| `WEAPON_ITEM_USE_REWARD` | `0.02` | Small reward for equipping a non-recycled weapon item |
+| `MELEE_WEAPON_HIT_REWARD_BONUS` | `0.75` | Extra reward for landing a hit with a melee weapon |
+| `RANGED_WEAPON_HIT_REWARD_BONUS` | `0.50` | Extra reward for landing a hit with a ranged weapon |
+| `MELEE_WEAPON_KILL_REWARD_BONUS` | `1.00` | Extra reward for killing with a melee weapon |
+| `RANGED_WEAPON_KILL_REWARD_BONUS` | `0.75` | Extra reward for killing with a ranged weapon |
+| `ARMED_VISIBLE_ENEMY_REWARD` | `0.09` | Reward for keeping a weapon equipped while an enemy is visible |
+| `DROP_ITEM_PENALTY` | `-0.09` | Base penalty for dropping an item |
+| `DROP_WEAPON_WHILE_THREATENED_PENALTY` | `-0.20` | Extra penalty for dropping a weapon while an enemy is visible |
 
 ### Runtime Defaults
 
@@ -484,7 +557,8 @@ This catches syntax and import issues quickly.
 - change `DISCOUNT_FACTOR` to study short-term vs long-term behavior
 - change `LEARNING_RATE` to study stability
 - alter reward terms and watch how agents exploit new incentives
-- compare `greedy` vs `sample` playback in policy mode
+- compare `greedy`, `sample`, `temperature_sample`, and `temperature_top_k_sample`
+- tune `POLICY_TEMPERATURE`, `POLICY_EPSILON`, and `POLICY_TOP_K`
 
 ## License
 
