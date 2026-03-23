@@ -81,6 +81,9 @@ class World:
         self.items: dict[int, ItemEntity] = {}
         self._occupancy: dict[tuple[int, int], int] = {}
         self._item_occupancy: dict[tuple[int, int], int] = {}
+        self._visible_cells_cache: dict[tuple[int, int], set[tuple[int, int]]] = {}
+        self._nearest_visible_enemy_distance_cache: dict[int, int | None] = {}
+        self._shot_target_cache: dict[tuple[int, Action], AgentEntity | None] = {}
         self.spawn_points = self._build_spawn_points()
         self.reset()
 
@@ -89,6 +92,7 @@ class World:
 
         self.tick = 0
         self.grid_map = generate_map(self.width, self.height)
+        self._clear_step_caches()
         if not self.agents:
             self.agents = self._create_agents()
             self.items = self._create_items()
@@ -106,6 +110,7 @@ class World:
         """Advance the world by one tick using the provided agent actions."""
 
         self.tick += 1
+        self._clear_step_caches()
         previously_alive = {agent.entity_id for agent in self.alive_agents()}
         for agent in self.agents.values():
             agent.clear_step_flags()
@@ -121,6 +126,7 @@ class World:
             if action in MOVEMENT_ACTIONS:
                 self.move_agent(agent, action)
 
+        self._clear_step_caches()
         damage_events: list[DamageEvent] = []
         item_events: list[dict[str, int | str]] = []
         for agent_id in sorted(self.agents):
@@ -147,6 +153,7 @@ class World:
                 if event is not None:
                     damage_events.append(event)
 
+        self._clear_step_caches()
         for agent_id in previously_alive:
             agent = self.agents[agent_id]
             agent.current_visible_enemy_distance = self._nearest_visible_enemy_distance(agent)
@@ -184,6 +191,7 @@ class World:
         agent.x = target_x
         agent.y = target_y
         self._occupancy[(agent.x, agent.y)] = agent.entity_id
+        self._clear_step_caches()
         return True
 
     def perform_attack(self, agent: AgentEntity, action: Action) -> DamageEvent | None:
@@ -204,6 +212,7 @@ class World:
         killed_target = not target.alive
         if killed_target:
             agent.kills += 1
+        self._clear_step_caches()
 
         return DamageEvent(
             attacker_id=agent.entity_id,
@@ -249,6 +258,7 @@ class World:
         killed_target = not target.alive
         if killed_target:
             agent.kills += 1
+        self._clear_step_caches()
 
         return DamageEvent(
             attacker_id=agent.entity_id,
@@ -281,6 +291,7 @@ class World:
                 return None
             self.items.pop(item.entity_id, None)
             self._item_occupancy.pop((item.x, item.y), None)
+            self._clear_step_caches()
             return {
                 "agent_id": agent.entity_id,
                 "item_type": item.item_type,
@@ -345,6 +356,7 @@ class World:
             )
             self.items[item_id] = dropped_item
             self._item_occupancy[(agent.x, agent.y)] = item_id
+            self._clear_step_caches()
             return {
                 "agent_id": agent.entity_id,
                 "item_type": str(item_type),
@@ -424,10 +436,21 @@ class World:
         ):
             legal_actions.append(Action.DROP_ITEM)
         if agent.has_ranged_weapon():
-            for action in SHOOT_ACTIONS:
-                if self._find_shot_target(agent, action) is not None:
+            for action, target in self._get_shot_targets(agent).items():
+                if target is not None:
                     legal_actions.append(action)
         return legal_actions
+
+    def get_visible_cells(self, agent: AgentEntity, radius: int) -> set[tuple[int, int]]:
+        """Return cached visible cells for the current stable world state."""
+
+        cache_key = (agent.entity_id, radius)
+        cached_cells = self._visible_cells_cache.get(cache_key)
+        if cached_cells is not None:
+            return cached_cells
+        visible_cells = compute_visible_cells(self, agent, radius)
+        self._visible_cells_cache[cache_key] = visible_cells
+        return visible_cells
 
     def is_episode_over(self) -> bool:
         """Return True when the episode should terminate."""
@@ -521,35 +544,62 @@ class World:
 
         if not agent.alive:
             return None
+        if agent.entity_id in self._nearest_visible_enemy_distance_cache:
+            return self._nearest_visible_enemy_distance_cache[agent.entity_id]
 
-        visible_cells = compute_visible_cells(self, agent, VISION_RADIUS)
+        visible_cells = self.get_visible_cells(agent, VISION_RADIUS)
         visible_distances = [
             abs(other.x - agent.x) + abs(other.y - agent.y)
             for other in self.alive_agents()
             if other.entity_id != agent.entity_id and (other.x, other.y) in visible_cells
         ]
         if not visible_distances:
+            self._nearest_visible_enemy_distance_cache[agent.entity_id] = None
             return None
-        return min(visible_distances)
+        nearest_distance = min(visible_distances)
+        self._nearest_visible_enemy_distance_cache[agent.entity_id] = nearest_distance
+        return nearest_distance
 
     def _find_shot_target(self, agent: AgentEntity, action: Action) -> AgentEntity | None:
         """Return the first target that would be hit by a ranged shot."""
 
         if not agent.has_ranged_weapon():
             return None
+        cache_key = (agent.entity_id, action)
+        if cache_key in self._shot_target_cache:
+            return self._shot_target_cache[cache_key]
 
         dx, dy = action_to_delta(action)
         for distance in range(1, max(1, agent.equipped_weapon_range) + 1):
             target_x = agent.x + dx * distance
             target_y = agent.y + dy * distance
             if not in_bounds(target_x, target_y, self.width, self.height):
+                self._shot_target_cache[cache_key] = None
                 return None
             if self.grid_map.is_wall(target_x, target_y):
+                self._shot_target_cache[cache_key] = None
                 return None
             target = self.get_agent_at(target_x, target_y)
             if target is not None and target.entity_id != agent.entity_id:
+                self._shot_target_cache[cache_key] = target
                 return target
+        self._shot_target_cache[cache_key] = None
         return None
+
+    def _get_shot_targets(self, agent: AgentEntity) -> dict[Action, AgentEntity | None]:
+        """Return one cached shot-target lookup for each shoot direction."""
+
+        return {
+            action: self._find_shot_target(agent, action)
+            for action in SHOOT_ACTIONS
+        }
+
+    def _clear_step_caches(self) -> None:
+        """Clear lightweight per-state caches after any world-state change."""
+
+        self._visible_cells_cache.clear()
+        self._nearest_visible_enemy_distance_cache.clear()
+        self._shot_target_cache.clear()
 
     @staticmethod
     def _is_attack_range_distance(distance: int | None) -> bool:

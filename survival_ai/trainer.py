@@ -27,6 +27,14 @@ class EpisodeMetrics:
     reward_component_totals: RewardBreakdown
 
 
+@dataclass(slots=True)
+class DecisionContext:
+    """Stores one agent decision input so training code can reuse it cleanly."""
+
+    observation: list[float]
+    legal_action_indices: list[int]
+
+
 class Trainer:
     """Coordinates self-play data collection and policy gradient updates."""
 
@@ -39,6 +47,7 @@ class Trainer:
         learning_rate: float = config.LEARNING_RATE,
         weights_path: str = config.WEIGHTS_PATH,
         seed: int | None = None,
+        randomize_seed_each_episode: bool = False,
     ) -> None:
         self.world = world
         self.policy_network = policy_network
@@ -47,34 +56,30 @@ class Trainer:
         self.learning_rate = learning_rate
         self.weights_path = Path(weights_path)
         self._rng = random.Random(seed)
+        self._system_rng = random.SystemRandom()
+        self.randomize_seed_each_episode = randomize_seed_each_episode
 
     def run_episode(self, episode_index: int = 0) -> tuple[EpisodeMemory, EpisodeMetrics]:
         """Collect one complete self-play episode using the current policy."""
 
+        if self.randomize_seed_each_episode:
+            self._rng.seed(self._system_rng.randint(0, 2**31 - 1))
         self.world.reset()
         memory = EpisodeMemory()
         component_totals = RewardBreakdown()
 
         while True:
             alive_ids = [agent.entity_id for agent in self.world.alive_agents()]
-            observations = {}
-            legal_action_indices = {}
+            decision_contexts: dict[int, DecisionContext] = {}
             selected_actions: dict[int, Action] = {}
 
             for agent_id in alive_ids:
                 agent = self.world.agents[agent_id]
-                feature_names, feature_vector = build_feature_vector(
-                    self.world,
-                    agent,
-                    self.vision_radius,
-                )
-                observations[agent_id] = feature_vector
-                legal_actions = self.world.get_legal_actions(agent)
-                legal_indices = [action.value for action in legal_actions]
-                legal_action_indices[agent_id] = legal_indices
+                decision_context = self._build_decision_context(agent)
+                decision_contexts[agent_id] = decision_context
                 selected_actions[agent_id] = self._sample_action(
-                    feature_vector,
-                    legal_indices,
+                    decision_context.observation,
+                    decision_context.legal_action_indices,
                 )
 
             step_result = self.world.step(selected_actions)
@@ -83,11 +88,12 @@ class Trainer:
 
             for agent_id in alive_ids:
                 reward_value = reward_breakdowns[agent_id].total
+                decision_context = decision_contexts[agent_id]
                 memory.add_step(
                     EpisodeStep(
                         agent_id=agent_id,
-                        observation=observations[agent_id],
-                        legal_action_indices=legal_action_indices[agent_id],
+                        observation=decision_context.observation,
+                        legal_action_indices=decision_context.legal_action_indices,
                         action=selected_actions[agent_id],
                         reward=reward_value,
                         done=(not self.world.agents[agent_id].alive) or step_result.episode_over,
@@ -114,15 +120,12 @@ class Trainer:
         )
         return memory, metrics
 
-    def train(self, num_episodes: int, log_every: int = 10, save_every: int = 50) -> list[EpisodeMetrics]:
+    def train(self, num_episodes: int, log_every: int = 10, save_every: int = 50) -> None:
         """Run repeated self-play episodes and update the shared policy network."""
-
-        all_metrics: list[EpisodeMetrics] = []
 
         for episode_index in range(1, num_episodes + 1):
             episode_memory, metrics = self.run_episode(episode_index=episode_index)
             self.update_policy(episode_memory)
-            all_metrics.append(metrics)
 
             if episode_index % log_every == 0 or episode_index == 1:
                 print(
@@ -140,7 +143,6 @@ class Trainer:
 
         self.weights_path.parent.mkdir(parents=True, exist_ok=True)
         self.policy_network.save(str(self.weights_path))
-        return all_metrics
 
     def compute_returns(self, episode_memory: EpisodeMemory) -> dict[int, list[float]]:
         """Compute discounted returns for each agent trajectory."""
@@ -205,6 +207,20 @@ class Trainer:
         probabilities = masked_softmax(action_scores, legal_action_indices)
         chosen_index = select_index_from_probabilities(probabilities, self._rng)
         return Action(chosen_index)
+
+    def _build_decision_context(self, agent) -> DecisionContext:
+        """Build one reusable decision package for the current agent state."""
+
+        _feature_names, feature_vector = build_feature_vector(
+            self.world,
+            agent,
+            self.vision_radius,
+        )
+        legal_actions = self.world.get_legal_actions(agent)
+        return DecisionContext(
+            observation=feature_vector,
+            legal_action_indices=[action.value for action in legal_actions],
+        )
 
     @staticmethod
     def _normalize_returns(returns: list[float]) -> list[float]:

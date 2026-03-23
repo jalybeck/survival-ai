@@ -119,7 +119,7 @@ def build_local_grid(world, agent, radius: int, visible_cells: set[tuple[int, in
 def build_feature_vector(world, agent, radius: int) -> tuple[list[str], list[float]]:
     """Convert one agent observation into a small, inspectable numeric feature vector."""
 
-    visible_cells = compute_visible_cells(world, agent, radius)
+    visible_cells = _get_visible_cells(world, agent, radius)
     return build_feature_vector_from_visible(world, agent, radius, visible_cells)
 
 
@@ -340,7 +340,7 @@ def build_self_state(world, agent) -> SelfState:
 def build_observation(world, agent, radius: int) -> ObservationSnapshot:
     """Build the full observation package used for debugging and later learning."""
 
-    visible_cells = compute_visible_cells(world, agent, radius)
+    visible_cells = _get_visible_cells(world, agent, radius)
     local_grid = build_local_grid(world, agent, radius, visible_cells=visible_cells)
     feature_names, feature_vector = build_feature_vector_from_visible(
         world,
@@ -457,6 +457,14 @@ def _normalize_relative_axis(delta: int, scale: int) -> float:
     """Normalize a signed relative axis value into the range [-1, 1]."""
 
     return delta / max(1, scale - 1)
+
+
+def _get_visible_cells(world, agent, radius: int) -> set[tuple[int, int]]:
+    """Use a world-level visibility cache when available, otherwise compute directly."""
+
+    if hasattr(world, "get_visible_cells"):
+        return world.get_visible_cells(agent, radius)
+    return compute_visible_cells(world, agent, radius)
 
 
 def _normalize_equipped_weapon_charges(agent) -> float:

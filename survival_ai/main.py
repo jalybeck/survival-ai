@@ -396,6 +396,7 @@ def run_training(
     num_episodes: int,
     seed: int,
     max_ticks: int | None = None,
+    randomize_seed_each_episode: bool = False,
 ) -> None:
     """Train the shared policy network in headless mode and save weights."""
 
@@ -403,7 +404,12 @@ def run_training(
     print(f"Mode=train seed={seed} max_ticks={resolved_max_ticks}")
     world = World(max_episode_length=resolved_max_ticks)
     policy_network = create_network_for_world(world, seed=seed)
-    trainer = Trainer(world, policy_network, seed=seed)
+    trainer = Trainer(
+        world,
+        policy_network,
+        seed=seed,
+        randomize_seed_each_episode=randomize_seed_each_episode,
+    )
     if trainer.load_weights_if_available():
         print(f"Loaded existing policy weights from {config.WEIGHTS_PATH}. Continuing training.")
     else:
@@ -536,12 +542,13 @@ def run_policy_debug(
 
 def parse_cli_args(
     raw_args: list[str],
-) -> tuple[str, list[str], int, int | None, bool]:
+) -> tuple[str, list[str], int, int | None, bool, bool]:
     """Parse the main mode arguments and optional shared random seed."""
 
     filtered_args: list[str] = []
     seed = config.DEFAULT_SEED
     seed_explicitly_set = False
+    seed_auto_requested = False
     max_ticks: int | None = None
     index = 0
 
@@ -551,6 +558,7 @@ def parse_cli_args(
             if index + 1 >= len(raw_args):
                 raise SystemExit("Missing value for --seed")
             seed_arg = raw_args[index + 1]
+            seed_auto_requested = seed_arg == "auto"
             seed = random.SystemRandom().randint(0, 2**31 - 1) if seed_arg == "auto" else int(seed_arg)
             seed_explicitly_set = True
             index += 2
@@ -573,18 +581,30 @@ def parse_cli_args(
         seed = random.SystemRandom().randint(0, 2**31 - 1)
     if not raw_args and max_ticks is None:
         max_ticks = config.DEFAULT_START_TICKS
-    return mode, mode_args, seed, max_ticks, randomize_seed_each_episode
+    return mode, mode_args, seed, max_ticks, randomize_seed_each_episode, seed_auto_requested
 
 
 def main(argv: list[str] | None = None) -> None:
     """Dispatch between scripted debug, training, and learned policy playback."""
 
     raw_args = list(sys.argv[1:] if argv is None else argv)
-    mode, mode_args, seed, max_ticks, randomize_seed_each_episode = parse_cli_args(raw_args)
+    (
+        mode,
+        mode_args,
+        seed,
+        max_ticks,
+        randomize_seed_each_episode,
+        seed_auto_requested,
+    ) = parse_cli_args(raw_args)
 
     if mode == "train":
         num_episodes = int(mode_args[0]) if mode_args else config.DEFAULT_TRAIN_EPISODES
-        run_training(num_episodes, seed, max_ticks=max_ticks)
+        run_training(
+            num_episodes,
+            seed,
+            max_ticks=max_ticks,
+            randomize_seed_each_episode=seed_auto_requested,
+        )
     elif mode == "policy":
         run_policy_debug(
             seed,
