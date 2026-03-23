@@ -117,6 +117,7 @@ def run_debug_loop(
     debug_network: SimpleMLP,
     controller_builder,
     controller_mode_label_getter: Callable[[], str | None] | None = None,
+    training_active_label_getter: Callable[[], str | None] | None = None,
     controller_mode_cycle_callback: Callable[[], None] | None = None,
     episode_reset_callback: Callable[[], None] | None = None,
     live_trainer: Trainer | None = None,
@@ -169,6 +170,14 @@ def run_debug_loop(
                         controller_mode_cycle_callback()
                         controllers.clear()
                         controllers.update(controller_builder(world))
+                        if (
+                            live_trainer is not None
+                            and training_active_label_getter is not None
+                            and training_active_label_getter() == "OFF"
+                        ):
+                            live_episode_memory.clear()
+                            live_component_totals = RewardBreakdown()
+                            print("Live training buffer cleared: off-policy playback mode.")
                     elif event.key == pygame.K_r:
                         world.reset()
                         if episode_reset_callback is not None:
@@ -249,7 +258,14 @@ def run_debug_loop(
                             "expires_at": now + config.TRACER_DURATION_MS,
                         }
                     )
-                if live_trainer is not None:
+                training_active = (
+                    live_trainer is not None
+                    and (
+                        training_active_label_getter is None
+                        or training_active_label_getter() == "ON"
+                    )
+                )
+                if training_active:
                     live_trainer._accumulate_reward_components(
                         live_component_totals,
                         latest_rewards,
@@ -257,7 +273,7 @@ def run_debug_loop(
                 for agent_id, breakdown in latest_rewards.items():
                     world.agents[agent_id].last_reward = breakdown.total
                     world.agents[agent_id].total_reward += breakdown.total
-                if live_trainer is not None:
+                if training_active:
                     for agent_id, (
                         observation_vector,
                         legal_action_indices,
@@ -275,7 +291,7 @@ def run_debug_loop(
                         )
                 step_requested = False
                 if result.episode_over:
-                    if live_trainer is not None:
+                    if training_active:
                         live_trainer.update_policy(live_episode_memory)
                         live_trainer.weights_path.parent.mkdir(parents=True, exist_ok=True)
                         live_trainer.policy_network.save(str(live_trainer.weights_path))
@@ -297,6 +313,9 @@ def run_debug_loop(
                         )
                         live_episode_index += 1
                         live_episode_memory = EpisodeMemory()
+                        live_component_totals = RewardBreakdown()
+                    elif live_trainer is not None:
+                        live_episode_memory.clear()
                         live_component_totals = RewardBreakdown()
                     reset_at = now + config.RESET_DELAY_MS
             elif reset_at is not None and now >= reset_at:
@@ -349,6 +368,11 @@ def run_debug_loop(
                     if controller_mode_label_getter is not None
                     else None
                 ),
+                training_active_label=(
+                    training_active_label_getter()
+                    if training_active_label_getter is not None
+                    else None
+                ),
                 debug_agent_dead=(not world.agents[debug_agent_id].alive),
                 network_trace=network_trace,
                 previous_network_trace=previous_network_trace,
@@ -380,6 +404,13 @@ def run_training(
     world = World(max_episode_length=resolved_max_ticks)
     policy_network = create_network_for_world(world, seed=seed)
     trainer = Trainer(world, policy_network, seed=seed)
+    if trainer.load_weights_if_available():
+        print(f"Loaded existing policy weights from {config.WEIGHTS_PATH}. Continuing training.")
+    else:
+        print(
+            f"No valid saved weights found at {config.WEIGHTS_PATH}. "
+            "Starting training from fresh random weights."
+        )
     trainer.train(num_episodes)
     print(f"Saved policy weights to {config.WEIGHTS_PATH}")
 
@@ -461,7 +492,15 @@ def run_policy_debug(
         policy_mode_state["index"] = (
             policy_mode_state["index"] + 1
         ) % len(available_modes)
-        print(f"Policy mode: {current_policy_mode()}")
+        print(
+            f"Policy mode: {current_policy_mode()} | "
+            f"training={'ON' if current_policy_mode() == 'sample' else 'OFF'}"
+        )
+
+    def current_training_status() -> str:
+        """Return whether visible live training is active for the current playback mode."""
+
+        return "ON" if current_policy_mode() == "sample" else "OFF"
 
     def controller_builder(current_world):
         """Build policy controllers using the current episode seed."""
@@ -488,6 +527,7 @@ def run_policy_debug(
         policy_network,
         controller_builder,
         controller_mode_label_getter=current_policy_mode,
+        training_active_label_getter=current_training_status,
         controller_mode_cycle_callback=cycle_policy_mode,
         episode_reset_callback=advance_episode_seed,
         live_trainer=trainer,

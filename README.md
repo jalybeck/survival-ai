@@ -8,7 +8,7 @@ The project intentionally implements the AI pieces by hand instead of using PyTo
 
 ## Core Idea
 
-Three agents share one policy network and compete in a deterministic grid world with:
+Multiple agents share one policy network and compete in a deterministic grid world with:
 
 - movement
 - melee combat
@@ -65,6 +65,7 @@ Current default startup behavior:
 - max ticks per episode: `1000`
 - when started with no CLI arguments, each new visible episode gets a fresh random seed
 - if no valid `weights.json` exists, the app starts from fresh random weights and writes new weights after completed episodes
+- headless `train` mode now resumes from existing saved weights when they match the current architecture
 
 Other useful commands:
 
@@ -84,11 +85,13 @@ py -3.12 -m survival_ai.main train 2000 --seed 42 --tick 1000
   - useful for validating mechanics and renderer behavior
 - `policy`
   - the shared neural network chooses actions
-  - visible live learning is enabled
+  - visible live learning is enabled only in `sample` mode
+  - other playback modes are observation/playback only and do not update weights
   - updated weights are saved after each completed episode
 - `train [episodes]`
   - headless self-play training
   - no pygame window
+  - continues from existing saved weights when possible
   - weights are saved periodically and at the end
 
 ### Visual Controls
@@ -119,6 +122,12 @@ Visible `policy` mode can cycle through multiple action-selection strategies whi
   - applies temperature first, then samples within the best `K` legal actions
 
 These modes are useful for studying how action selection changes visible behavior even when the network weights stay the same.
+
+Important note:
+
+- visible live training is mathematically aligned only with plain `sample`
+- if you switch to another playback mode, the HUD shows `Training: OFF`
+- this prevents accidental overnight runs in an off-policy playback mode that would not produce valid REINFORCE updates
 
 ## World Model
 
@@ -356,6 +365,8 @@ In both cases:
 
 That means the current algorithm is episodic, not bootstrapped step-wise RL.
 
+For correctness, visible live updates are only applied while the playback mode is `sample`. Headless `train` mode always uses the matching sampling policy internally.
+
 ## Architecture and Visualization
 
 The right-side network panel shows:
@@ -383,7 +394,7 @@ All major tuning values live in `survival_ai/config.py`.
 |---|---:|---|
 | `MAP_WIDTH` | `15` | Grid width in tiles |
 | `MAP_HEIGHT` | `15` | Grid height in tiles |
-| `NUM_AGENTS` | `3` | Number of agents spawned into the arena |
+| `NUM_AGENTS` | `4` | Number of agents spawned into the arena |
 | `VISION_RADIUS` | `5` | Visibility radius used for local observation and LOS queries |
 | `MAX_HEALTH` | `10` | Maximum health per agent |
 | `UNARMED_DAMAGE` | `1` | Base damage dealt without a weapon |
@@ -435,8 +446,8 @@ All major tuning values live in `survival_ai/config.py`.
 
 | Name | Default | Meaning |
 |---|---:|---|
-| `LEARNING_RATE` | `0.02` | Step size for gradient-based weight updates |
-| `DISCOUNT_FACTOR` | `0.95` | How strongly future rewards influence current returns |
+| `LEARNING_RATE` | `0.03` | Step size for gradient-based weight updates |
+| `DISCOUNT_FACTOR` | `0.94` | How strongly future rewards influence current returns |
 | `HIDDEN_LAYER_SIZES` | `(24, 24)` | Hidden layer widths of the shared MLP |
 | `LOW_HEALTH_THRESHOLD` | `0.50` | Health ratio used for low-health item/reward context |
 
@@ -444,9 +455,9 @@ All major tuning values live in `survival_ai/config.py`.
 
 | Name | Default | Meaning |
 |---|---:|---|
-| `POLICY_TEMPERATURE` | `0.70` | Temperature used by temperature-based sampling modes |
-| `POLICY_EPSILON` | `0.10` | Random exploration chance used by `epsilon_greedy` |
-| `POLICY_TOP_K` | `3` | Number of legal actions kept by top-k-based modes |
+| `POLICY_TEMPERATURE` | `0.80` | Temperature used by temperature-based sampling modes |
+| `POLICY_EPSILON` | `0.25` | Random exploration chance used by `epsilon_greedy` |
+| `POLICY_TOP_K` | `4` | Number of legal actions kept by top-k-based modes |
 
 ### Reward-Shaping Parameters
 
@@ -460,22 +471,22 @@ All major tuning values live in `survival_ai/config.py`.
 | `NEW_TILE_REWARD` | `0.005` | Reward for visiting a previously unseen tile this episode |
 | `IDLE_PENALTY` | `-0.01` | Penalty for staying on the same tile |
 | `OSCILLATION_PENALTY` | `-0.04` | Penalty for short A-B-A movement loops |
-| `NO_WINNER_PENALTY` | `-2.0` | Penalty applied to surviving agents on timeout/draw |
+| `NO_WINNER_PENALTY` | `-3.0` | Penalty applied to surviving agents on timeout/draw |
 | `APPROACH_VISIBLE_AGENT_REWARD` | `0.03` | Reward for reducing distance to the nearest visible enemy |
-| `ENTER_ATTACK_RANGE_REWARD` | `0.04` | Reward for newly entering melee range |
-| `ITEM_PICKUP_REWARD` | `0.06` | Base reward for a valid item pickup event |
+| `ENTER_ATTACK_RANGE_REWARD` | `0.05` | Reward for newly entering melee range |
+| `ITEM_PICKUP_REWARD` | `0.20` | Base reward for a valid item pickup event |
 | `CONTEXTUAL_WEAPON_PICKUP_REWARD` | `0.20` | Extra pickup reward when a weapon is picked up in relevant combat context |
 | `CONTEXTUAL_HEAL_PICKUP_REWARD` | `0.15` | Extra pickup reward when a heal is picked up while low on health |
 | `HEAL_ITEM_USE_REWARD` | `0.35` | Reward for successfully using a heal item |
 | `LOW_HEALTH_HEAL_BONUS` | `0.20` | Extra reward for healing when already in low-health state |
-| `WEAPON_ITEM_USE_REWARD` | `0.02` | Small reward for equipping a non-recycled weapon item |
+| `WEAPON_ITEM_USE_REWARD` | `0.05` | Small reward for equipping a non-recycled weapon item |
 | `MELEE_WEAPON_HIT_REWARD_BONUS` | `0.75` | Extra reward for landing a hit with a melee weapon |
 | `RANGED_WEAPON_HIT_REWARD_BONUS` | `0.50` | Extra reward for landing a hit with a ranged weapon |
 | `MELEE_WEAPON_KILL_REWARD_BONUS` | `1.00` | Extra reward for killing with a melee weapon |
 | `RANGED_WEAPON_KILL_REWARD_BONUS` | `0.75` | Extra reward for killing with a ranged weapon |
 | `ARMED_VISIBLE_ENEMY_REWARD` | `0.09` | Reward for keeping a weapon equipped while an enemy is visible |
-| `DROP_ITEM_PENALTY` | `-0.09` | Base penalty for dropping an item |
-| `DROP_WEAPON_WHILE_THREATENED_PENALTY` | `-0.20` | Extra penalty for dropping a weapon while an enemy is visible |
+| `DROP_ITEM_PENALTY` | `-0.30` | Base penalty for dropping an item |
+| `DROP_WEAPON_WHILE_THREATENED_PENALTY` | `-0.40` | Extra penalty for dropping a weapon while an enemy is visible |
 
 ### Runtime Defaults
 

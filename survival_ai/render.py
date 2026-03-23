@@ -54,6 +54,7 @@ class PygameRenderer:
         debug_agent_id: int | None = None,
         auto_advance: bool = False,
         controller_mode_label: str | None = None,
+        training_active_label: str | None = None,
         debug_agent_dead: bool = False,
         tracer_lines: list[tuple[tuple[int, int], tuple[int, int], tuple[int, int, int]]] | None = None,
         network_trace=None,
@@ -64,7 +65,7 @@ class PygameRenderer:
         """Render the world state and selected-agent observation debug data."""
 
         self.surface.fill(config.BACKGROUND_COLOR)
-        self._draw_top_panel(world, auto_advance, controller_mode_label)
+        self._draw_top_panel(world, auto_advance, controller_mode_label, training_active_label)
         self._draw_map(world, visible_cells or set())
         self._draw_tracers(tracer_lines or [])
         self._draw_agents(world)
@@ -205,6 +206,7 @@ class PygameRenderer:
         world,
         auto_advance: bool,
         controller_mode_label: str | None,
+        training_active_label: str | None,
     ) -> None:
         """Draw the global tick, controls, and agent summaries above the game board."""
 
@@ -213,14 +215,27 @@ class PygameRenderer:
         pygame.draw.rect(self.surface, (14, 16, 20), panel_rect)
 
         mode_label = "AUTO" if auto_advance else "MANUAL"
-        headline = (
+        headline_left = (
             f"Tick {world.tick}/{world.max_episode_length}  |  "
             f"Alive: {len(world.alive_agents())}  |  Mode: {mode_label}"
         )
         if controller_mode_label is not None:
-            headline += f"  |  Policy: {controller_mode_label.upper()}"
-        headline_label = self._font.render(headline, True, config.TEXT_COLOR)
+            headline_left += f"  |  Policy: {controller_mode_label.upper()}"
+        headline_label = self._small_font.render(headline_left, True, config.TEXT_COLOR)
         self.surface.blit(headline_label, (12, 10))
+
+        if training_active_label is not None:
+            training_color = (
+                (88, 214, 141)
+                if training_active_label == "ON"
+                else (235, 102, 102)
+            )
+            training_prefix = self._small_font.render("Training:", True, config.TEXT_COLOR)
+            prefix_rect = training_prefix.get_rect(topright=(self.base_window_width - 110, 10))
+            self.surface.blit(training_prefix, prefix_rect)
+            training_value = self._small_font.render(training_active_label, True, training_color)
+            value_rect = training_value.get_rect(topleft=(prefix_rect.right + 8, 10))
+            self.surface.blit(training_value, value_rect)
 
         controls = "Space: step  A: auto  R: reset  Tab: debug agent  O: print obs  Click >>: panel"
         if controller_mode_label is not None:
