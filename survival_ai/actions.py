@@ -24,6 +24,11 @@ class Action(IntEnum):
     SHOOT_DOWN = 13
     SHOOT_LEFT = 14
     SHOOT_RIGHT = 15
+    INSPECT = 16
+    INSPECT_UP = 17
+    INSPECT_DOWN = 18
+    INSPECT_LEFT = 19
+    INSPECT_RIGHT = 20
 
 
 MOVEMENT_ACTIONS = (
@@ -53,6 +58,14 @@ SHOOT_ACTIONS = (
     Action.SHOOT_RIGHT,
 )
 
+INSPECT_ACTIONS = (
+    Action.INSPECT,
+    Action.INSPECT_UP,
+    Action.INSPECT_DOWN,
+    Action.INSPECT_LEFT,
+    Action.INSPECT_RIGHT,
+)
+
 ACTION_TO_DELTA = {
     Action.MOVE_UP: (0, -1),
     Action.MOVE_DOWN: (0, 1),
@@ -66,6 +79,11 @@ ACTION_TO_DELTA = {
     Action.SHOOT_DOWN: (0, 1),
     Action.SHOOT_LEFT: (-1, 0),
     Action.SHOOT_RIGHT: (1, 0),
+    Action.INSPECT: (0, 0),
+    Action.INSPECT_UP: (0, -1),
+    Action.INSPECT_DOWN: (0, 1),
+    Action.INSPECT_LEFT: (-1, 0),
+    Action.INSPECT_RIGHT: (1, 0),
 }
 
 
@@ -91,6 +109,12 @@ def is_shoot_action(action: Action) -> bool:
     """Return True when the action fires a ranged weapon in one direction."""
 
     return action in SHOOT_ACTIONS
+
+
+def is_inspect_action(action: Action) -> bool:
+    """Return True when the action inspects the current or adjacent tile."""
+
+    return action in INSPECT_ACTIONS
 
 
 def action_to_delta(action: Action) -> tuple[int, int]:

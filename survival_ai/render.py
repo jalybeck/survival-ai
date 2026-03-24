@@ -312,6 +312,7 @@ class PygameRenderer:
             f"reward={world.agents[debug_agent_id].last_reward:+.2f}",
             f"episode_total={world.agents[debug_agent_id].total_reward:+.2f}",
             f"last_action={world.agents[debug_agent_id].last_action.name}",
+            f"last_inspect={self._format_last_inspect(world.agents[debug_agent_id])}",
         ]
         for row_index, line in enumerate(debug_lines):
             debug_label = self._tiny_font.render(line, True, config.TEXT_COLOR)
@@ -517,8 +518,41 @@ class PygameRenderer:
             f"visible_agents={feature_lookup['visible_agent_count_norm']:.2f}",
             f"visible_items={feature_lookup['visible_item_count_norm']:.2f}",
             f"visible_cells={feature_lookup['visible_cell_ratio']:.2f}",
+            f"inspect={feature_lookup.get('inspect_known', 0.0):.2f}",
+            (
+                "inspect_kind="
+                f"{int(feature_lookup.get('inspect_found_empty', 0.0))}"
+                f"{int(feature_lookup.get('inspect_found_wall', 0.0))}"
+                f"{int(feature_lookup.get('inspect_found_item', 0.0))}"
+                f"{int(feature_lookup.get('inspect_found_agent', 0.0))}"
+            ),
+            (
+                "inspect_item="
+                f"{int(feature_lookup.get('inspect_item_heal', 0.0))}"
+                f"{int(feature_lookup.get('inspect_item_melee', 0.0))}"
+                f"{int(feature_lookup.get('inspect_item_ranged', 0.0))}"
+            ),
+            f"inspect_hp={feature_lookup.get('inspect_agent_health_norm', 0.0):.2f}",
+            f"inspect_age={feature_lookup.get('inspect_freshness_norm', 0.0):.2f}",
             "Press O for full vector",
         ]
+
+    @staticmethod
+    def _format_last_inspect(agent) -> str:
+        """Return a compact human-readable summary of the agent's latest inspection."""
+
+        if agent.last_inspection_age <= 0 or agent.last_inspected_kind is None:
+            return "none"
+        direction = agent.last_inspected_direction or "?"
+        if agent.last_inspected_kind == "item":
+            return f"{direction} item:{agent.last_inspected_item_type}"
+        if agent.last_inspected_kind == "agent":
+            return (
+                f"{direction} agent hp={agent.last_inspected_agent_health_norm:.2f} "
+                f"m={int(agent.last_inspected_agent_has_melee)} "
+                f"r={int(agent.last_inspected_agent_has_ranged)}"
+            )
+        return f"{direction} {agent.last_inspected_kind}"
 
     def _network_button_rect(self):
         """Return the clickable toggle button rect for the network inspection panel."""

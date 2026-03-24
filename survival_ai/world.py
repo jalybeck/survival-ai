@@ -7,6 +7,7 @@ from dataclasses import dataclass, field
 from .actions import (
     Action,
     ATTACK_ACTIONS,
+    INSPECT_ACTIONS,
     ITEM_ACTIONS,
     MOVEMENT_ACTIONS,
     SHOOT_ACTIONS,
@@ -113,6 +114,7 @@ class World:
         self._clear_step_caches()
         previously_alive = {agent.entity_id for agent in self.alive_agents()}
         for agent in self.agents.values():
+            agent.age_inspection_memory()
             agent.clear_step_flags()
             agent.previous_visible_enemy_distance = self._nearest_visible_enemy_distance(agent)
             agent.current_visible_enemy_distance = agent.previous_visible_enemy_distance
@@ -134,6 +136,8 @@ class World:
             if not agent.alive:
                 continue
             action = agent_actions.get(agent_id, Action.WAIT)
+            if action in INSPECT_ACTIONS:
+                self.handle_inspect_action(agent, action)
             if action in ITEM_ACTIONS:
                 event = self.handle_item_action(agent, action)
                 if event is not None:
@@ -367,6 +371,46 @@ class World:
 
         return None
 
+    def handle_inspect_action(self, agent: AgentEntity, action: Action) -> None:
+        """Resolve an inspect action and store a short-lived description on the agent."""
+
+        inspect_direction = {
+            Action.INSPECT: "SELF",
+            Action.INSPECT_UP: "UP",
+            Action.INSPECT_DOWN: "DOWN",
+            Action.INSPECT_LEFT: "LEFT",
+            Action.INSPECT_RIGHT: "RIGHT",
+        }[action]
+        dx, dy = action_to_delta(action)
+        target_x = agent.x + dx
+        target_y = agent.y + dy
+
+        if not in_bounds(target_x, target_y, self.width, self.height) or self.grid_map.is_wall(target_x, target_y):
+            agent.record_inspection(kind="wall", direction=inspect_direction)
+            return
+
+        target_agent = self.get_agent_at(target_x, target_y)
+        if target_agent is not None and target_agent.entity_id != agent.entity_id:
+            agent.record_inspection(
+                kind="agent",
+                direction=inspect_direction,
+                agent_health_norm=target_agent.health / max(1, target_agent.max_health),
+                agent_has_melee=target_agent.has_active_weapon_bonus(),
+                agent_has_ranged=target_agent.has_ranged_weapon(),
+            )
+            return
+
+        target_item = self.get_item_at(target_x, target_y)
+        if target_item is not None:
+            agent.record_inspection(
+                kind="item",
+                direction=inspect_direction,
+                item_type=target_item.item_type,
+            )
+            return
+
+        agent.record_inspection(kind="empty", direction=inspect_direction)
+
     def get_agent_at(self, x: int, y: int) -> AgentEntity | None:
         """Return the living agent occupying the given coordinate."""
 
@@ -403,6 +447,7 @@ class World:
         """Return actions that are currently legal for the given agent."""
 
         legal_actions = [Action.WAIT]
+        legal_actions.extend(INSPECT_ACTIONS)
         for action in MOVEMENT_ACTIONS:
             dx, dy = action_to_delta(action)
             if not self.is_blocked(agent.x + dx, agent.y + dy):

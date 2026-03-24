@@ -274,6 +274,68 @@ def build_feature_vector_from_visible(
         len(visible_items) / max(1, len(world.items)),
     )
 
+    inspect_known = 1.0 if agent.last_inspection_age > 0 and agent.last_inspected_kind is not None else 0.0
+    inspect_direction = agent.last_inspected_direction
+    inspect_kind = agent.last_inspected_kind
+    inspect_item_type = agent.last_inspected_item_type
+    _append_feature(feature_names, feature_vector, "inspect_known", inspect_known)
+    _append_feature(
+        feature_names,
+        feature_vector,
+        "inspect_is_current_tile",
+        1.0 if inspect_direction == "SELF" and inspect_known else 0.0,
+    )
+    for direction_name in ("UP", "DOWN", "LEFT", "RIGHT"):
+        _append_feature(
+            feature_names,
+            feature_vector,
+            f"inspect_dir_{direction_name.lower()}",
+            1.0 if inspect_direction == direction_name and inspect_known else 0.0,
+        )
+    for kind_name in ("empty", "wall", "item", "agent"):
+        _append_feature(
+            feature_names,
+            feature_vector,
+            f"inspect_found_{kind_name}",
+            1.0 if inspect_kind == kind_name and inspect_known else 0.0,
+        )
+    for item_type in ("heal", "melee_weapon", "ranged_weapon"):
+        suffix = (
+            "heal"
+            if item_type == "heal"
+            else "melee" if item_type == "melee_weapon" else "ranged"
+        )
+        _append_feature(
+            feature_names,
+            feature_vector,
+            f"inspect_item_{suffix}",
+            1.0 if inspect_item_type == item_type and inspect_known else 0.0,
+        )
+    _append_feature(
+        feature_names,
+        feature_vector,
+        "inspect_agent_health_norm",
+        agent.last_inspected_agent_health_norm if inspect_known and inspect_kind == "agent" else 0.0,
+    )
+    _append_feature(
+        feature_names,
+        feature_vector,
+        "inspect_agent_has_melee",
+        1.0 if inspect_known and inspect_kind == "agent" and agent.last_inspected_agent_has_melee else 0.0,
+    )
+    _append_feature(
+        feature_names,
+        feature_vector,
+        "inspect_agent_has_ranged",
+        1.0 if inspect_known and inspect_kind == "agent" and agent.last_inspected_agent_has_ranged else 0.0,
+    )
+    _append_feature(
+        feature_names,
+        feature_vector,
+        "inspect_freshness_norm",
+        _normalize_inspection_freshness(agent),
+    )
+
     _append_feature(feature_names, feature_vector, "damaged_last_step", self_state.damaged_last_step)
     _append_feature(feature_names, feature_vector, "damage_from_up", self_state.damage_from_up)
     _append_feature(feature_names, feature_vector, "damage_from_down", self_state.damage_from_down)
@@ -475,6 +537,12 @@ def _normalize_equipped_weapon_charges(agent) -> float:
     if agent.equipped_weapon_type == "ranged_weapon":
         return agent.equipped_weapon_charges / max(1, config.RANGED_WEAPON_SHOT_CHARGES)
     return 0.0
+
+
+def _normalize_inspection_freshness(agent) -> float:
+    """Normalize how fresh the current short-lived inspection memory is."""
+
+    return agent.last_inspection_age / max(1, config.INSPECT_MEMORY_TICKS)
 
 
 def _normalize_damage_direction(last_damage_direction: str | None) -> str | None:

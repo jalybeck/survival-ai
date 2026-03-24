@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
+from . import config
 from .actions import Action
 
 
@@ -62,6 +63,13 @@ class AgentEntity(Entity):
     used_weapon_item_this_step: bool = False
     healed_amount_this_step: int = 0
     health_before_heal_this_step: int = 0
+    last_inspected_kind: str | None = None
+    last_inspected_item_type: str | None = None
+    last_inspected_direction: str | None = None
+    last_inspected_agent_health_norm: float = 0.0
+    last_inspected_agent_has_melee: bool = False
+    last_inspected_agent_has_ranged: bool = False
+    last_inspection_age: int = 0
     blocks_movement: bool = True
 
     def __post_init__(self) -> None:
@@ -117,6 +125,13 @@ class AgentEntity(Entity):
         self.used_weapon_item_this_step = False
         self.healed_amount_this_step = 0
         self.health_before_heal_this_step = 0
+        self.last_inspected_kind = None
+        self.last_inspected_item_type = None
+        self.last_inspected_direction = None
+        self.last_inspected_agent_health_norm = 0.0
+        self.last_inspected_agent_has_melee = False
+        self.last_inspected_agent_has_ranged = False
+        self.last_inspection_age = 0
 
     def apply_damage(self, amount: int, source_direction: str | None = None) -> int:
         """Apply incoming damage and return the remaining health."""
@@ -143,6 +158,46 @@ class AgentEntity(Entity):
         self.used_weapon_item_this_step = False
         self.healed_amount_this_step = 0
         self.health_before_heal_this_step = 0
+
+    def age_inspection_memory(self) -> None:
+        """Age the latest inspection snapshot and clear it when it expires."""
+
+        if self.last_inspection_age <= 0:
+            return
+        self.last_inspection_age -= 1
+        if self.last_inspection_age <= 0:
+            self.clear_inspection_memory()
+
+    def clear_inspection_memory(self) -> None:
+        """Remove any stored short-lived inspection result."""
+
+        self.last_inspected_kind = None
+        self.last_inspected_item_type = None
+        self.last_inspected_direction = None
+        self.last_inspected_agent_health_norm = 0.0
+        self.last_inspected_agent_has_melee = False
+        self.last_inspected_agent_has_ranged = False
+        self.last_inspection_age = 0
+
+    def record_inspection(
+        self,
+        *,
+        kind: str,
+        direction: str,
+        item_type: str | None = None,
+        agent_health_norm: float = 0.0,
+        agent_has_melee: bool = False,
+        agent_has_ranged: bool = False,
+    ) -> None:
+        """Store one short-lived inspection result for later observation features."""
+
+        self.last_inspected_kind = kind
+        self.last_inspected_item_type = item_type
+        self.last_inspected_direction = direction
+        self.last_inspected_agent_health_norm = agent_health_norm
+        self.last_inspected_agent_has_melee = agent_has_melee
+        self.last_inspected_agent_has_ranged = agent_has_ranged
+        self.last_inspection_age = config.INSPECT_MEMORY_TICKS
 
     def has_inventory_item(self) -> bool:
         """Return True when the agent is carrying an item in its single-slot inventory."""
