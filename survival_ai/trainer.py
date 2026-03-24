@@ -257,6 +257,9 @@ class Trainer:
             totals.contextual_heal_pickup_reward += breakdown.contextual_heal_pickup_reward
             totals.heal_item_use_reward += breakdown.heal_item_use_reward
             totals.low_health_heal_bonus += breakdown.low_health_heal_bonus
+            totals.low_health_retreat_reward += breakdown.low_health_retreat_reward
+            totals.low_health_approach_penalty += breakdown.low_health_approach_penalty
+            totals.low_health_melee_range_penalty += breakdown.low_health_melee_range_penalty
             totals.weapon_item_use_reward += breakdown.weapon_item_use_reward
             totals.weapon_hit_bonus += breakdown.weapon_hit_bonus
             totals.weapon_kill_bonus += breakdown.weapon_kill_bonus
@@ -285,6 +288,9 @@ class Trainer:
             f"pickup_heal_ctx={component_totals.contextual_heal_pickup_reward:+.2f}, "
             f"heal={component_totals.heal_item_use_reward:+.2f}, "
             f"heal_low={component_totals.low_health_heal_bonus:+.2f}, "
+            f"retreat_low={component_totals.low_health_retreat_reward:+.2f}, "
+            f"approach_low={component_totals.low_health_approach_penalty:+.2f}, "
+            f"melee_low={component_totals.low_health_melee_range_penalty:+.2f}, "
             f"weapon={component_totals.weapon_item_use_reward:+.2f}, "
             f"weapon_hit={component_totals.weapon_hit_bonus:+.2f}, "
             f"weapon_kill={component_totals.weapon_kill_bonus:+.2f}, "

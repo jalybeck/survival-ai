@@ -25,6 +25,9 @@ class RewardBreakdown:
     contextual_heal_pickup_reward: float = 0.0
     heal_item_use_reward: float = 0.0
     low_health_heal_bonus: float = 0.0
+    low_health_retreat_reward: float = 0.0
+    low_health_approach_penalty: float = 0.0
+    low_health_melee_range_penalty: float = 0.0
     weapon_item_use_reward: float = 0.0
     weapon_hit_bonus: float = 0.0
     weapon_kill_bonus: float = 0.0
@@ -148,21 +151,41 @@ def compute_step_rewards(world, step_result) -> dict[int, RewardBreakdown]:
             reward_breakdowns[agent.entity_id].no_winner_penalty += config.NO_WINNER_PENALTY
 
     for agent in world.agents.values():
+        is_low_health = agent.health / max(1, agent.max_health) <= config.LOW_HEALTH_THRESHOLD
         if agent.visited_new_tile_this_step:
             reward_breakdowns[agent.entity_id].exploration_reward += config.NEW_TILE_REWARD
         if (
             agent.previous_visible_enemy_distance is not None
             and agent.current_visible_enemy_distance is not None
-            and agent.current_visible_enemy_distance < agent.previous_visible_enemy_distance
         ):
-            # Reward only actual progress toward a visible enemy. This gives the
-            # policy a dense pursuit signal without rewarding random movement.
-            reward_breakdowns[agent.entity_id].approach_reward += (
-                config.APPROACH_VISIBLE_AGENT_REWARD
-            )
+            if agent.current_visible_enemy_distance < agent.previous_visible_enemy_distance:
+                if is_low_health:
+                    reward_breakdowns[agent.entity_id].low_health_approach_penalty += (
+                        config.LOW_HEALTH_APPROACH_PENALTY
+                    )
+                else:
+                    # Reward only actual progress toward a visible enemy. This gives the
+                    # policy a dense pursuit signal without rewarding random movement.
+                    reward_breakdowns[agent.entity_id].approach_reward += (
+                        config.APPROACH_VISIBLE_AGENT_REWARD
+                    )
+            elif (
+                is_low_health
+                and agent.current_visible_enemy_distance > agent.previous_visible_enemy_distance
+            ):
+                reward_breakdowns[agent.entity_id].low_health_retreat_reward += (
+                    config.LOW_HEALTH_RETREAT_REWARD
+                )
         if agent.entered_attack_range_this_step:
             reward_breakdowns[agent.entity_id].attack_range_reward += (
                 config.ENTER_ATTACK_RANGE_REWARD
+            )
+        if (
+            is_low_health
+            and agent.current_visible_enemy_distance == 1
+        ):
+            reward_breakdowns[agent.entity_id].low_health_melee_range_penalty += (
+                config.LOW_HEALTH_MELEE_RANGE_PENALTY
             )
         if agent.has_equipped_weapon() and agent.current_visible_enemy_distance is not None:
             reward_breakdowns[agent.entity_id].armed_visible_enemy_reward += (
@@ -188,6 +211,9 @@ def compute_step_rewards(world, step_result) -> dict[int, RewardBreakdown]:
             + breakdown.contextual_heal_pickup_reward
             + breakdown.heal_item_use_reward
             + breakdown.low_health_heal_bonus
+            + breakdown.low_health_retreat_reward
+            + breakdown.low_health_approach_penalty
+            + breakdown.low_health_melee_range_penalty
             + breakdown.weapon_item_use_reward
             + breakdown.weapon_hit_bonus
             + breakdown.weapon_kill_bonus
@@ -220,6 +246,9 @@ def format_reward_breakdown(breakdown: RewardBreakdown) -> str:
         f"pickup_heal_ctx={breakdown.contextual_heal_pickup_reward:+.2f} "
         f"heal={breakdown.heal_item_use_reward:+.2f} "
         f"heal_low={breakdown.low_health_heal_bonus:+.2f} "
+        f"retreat_low={breakdown.low_health_retreat_reward:+.2f} "
+        f"approach_low={breakdown.low_health_approach_penalty:+.2f} "
+        f"melee_low={breakdown.low_health_melee_range_penalty:+.2f} "
         f"weapon={breakdown.weapon_item_use_reward:+.2f} "
         f"weapon_hit={breakdown.weapon_hit_bonus:+.2f} "
         f"weapon_kill={breakdown.weapon_kill_bonus:+.2f} "
